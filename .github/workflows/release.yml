@@ -1,0 +1,58 @@
+name: "releasetest"
+
+on:
+  push:
+    branches:
+      - "burgerdev"
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: "ubuntu-latest"
+    container: 
+      image: "alpine:3.19"
+
+    steps:
+      - name: "fetch dependencies"
+        run: |
+          apk add --no-cache alpine-sdk linux-headers
+
+      - uses: "actions/checkout@v3"
+
+      - name: "configure"
+        run: |
+          make defconfig
+          sed -e 's/.*FEATURE_PREFER_APPLETS.*/CONFIG_FEATURE_PREFER_APPLETS=y/' -i .config
+          sed -e 's/.*FEATURE_SH_STANDALONE.*/CONFIG_FEATURE_SH_STANDALONE=y/' -i .config
+          sed -e 's/.*CONFIG_STATIC is not set/CONFIG_STATIC=y/' -i .config
+          sed -e 's/CONFIG_STATIC_LIBGCC=y/CONFIG_STATIC_LIBGCC=n/' -i .config
+
+      - name: "build"
+        run: make
+
+      - uses: "actions/upload-artifact@v4"
+        with:
+          name: "binary"
+          path: "busybox"
+  pre-release:
+    name: "Pre Release"
+    needs: "build"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: "write"
+
+    steps:
+      - uses: "actions/checkout@v3"
+      - uses: "actions/download-artifact@v4"
+        with:
+          name: "binary"
+          path: "busybox"
+      - name: "release"
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          # delete stuff first
+          gh release delete latest --cleanup-tag -y || true
+          find .
+          # prelease; * includes all artifacts into the release
+          gh release create latest -p -t latest -n "Automatic build from head of main" busybox/busybox
